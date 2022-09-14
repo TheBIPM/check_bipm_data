@@ -9,6 +9,8 @@ packages = [{include = "check_bipm_data"}]
 
 [tool.poetry.dependencies]
 python = "^3.8"
+altair = "^4.2.0"
+pandas = "^1.4.4"
 
 [tool.poetry.scripts]
 check_bipm_data = 'check_bipm_data.check:main'

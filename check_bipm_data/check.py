@@ -110,15 +110,16 @@ def main():
     for filename in args.files:
         parse_clockfile(filename, diffs_raw, jumps_raw)
 
-    diffs = pd.DataFrame(diffs_raw, columns=[
-        'lab_code', 'clock_code', 'mjd', 'diff'])
+    values = pd.DataFrame(diffs_raw, columns=[
+        'lab_code', 'clock_code', 'mjd', 'utck-clock'])
     jumps = pd.DataFrame(jumps_raw, columns=[
         'lab_code', 'lab_acronym', 'clock_code', 'mjd', 'time_step',
         'freq_step'])
-    clock_list = diffs['clock_code'].unique()
+    clock_list = sorted(list(values['clock_code'].unique()))
     print("Found {} clock(s):".format(len(clock_list)))
+    values['1st_diff'] = 0
 
-    for clock_code in sorted(clock_list):
+    for clock_code in clock_list:
         print("{:05d}".format(clock_code))
         this_clock_jumps = jumps.loc[jumps['clock_code'] == clock_code]
         if len(this_clock_jumps) > 0:
@@ -128,8 +129,26 @@ def main():
                 print("     {} {} {}".format(
                     jp['mjd'],
                     jp['time_step'], jp['freq_step']))
-    chart = alt.Chart(diffs).mark_point().encode(x='mjd', y='diff')
-    chart.save('save.html')
+        values.loc[values['clock_code'] == clock_code, '1st_diff'] = (
+            values.loc[values['clock_code'] == clock_code]['utck-clock'].diff()
+        )
+    mjdstart = values['mjd'].min()
+    mjdstop = values['mjd'].max()
+    # Plot data interactively
+    clock_dropdown = alt.binding_select(options=clock_list)
+    clock_selection = alt.selection_single(fields=['clock_code'],
+                                           bind=clock_dropdown,
+                                           init={'clock_code': clock_list[0]},
+                                           name="clock code")
+    chart = alt.Chart(values).mark_point().encode(
+        x=alt.X('mjd', scale=alt.Scale(domain=(mjdstart, mjdstop))),
+        y='1st_diff',
+    ).add_selection(
+        clock_selection
+    ).transform_filter(
+        clock_selection
+    )
+    chart.save("save.html")
 
 
 if __name__ == "__main__":

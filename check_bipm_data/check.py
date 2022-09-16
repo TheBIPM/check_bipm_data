@@ -118,6 +118,7 @@ def main():
     clock_list = sorted(list(values['clock_code'].unique()))
     print("Found {} clock(s):".format(len(clock_list)))
     values['1st_diff'] = 0
+    values['2nd_diff'] = 0
 
     for clock_code in clock_list:
         print("{:05d}".format(clock_code))
@@ -129,25 +130,49 @@ def main():
                 print("     {} {} {}".format(
                     jp['mjd'],
                     jp['time_step'], jp['freq_step']))
+        # Calculate 1st and 2nd diff for each clock
         values.loc[values['clock_code'] == clock_code, '1st_diff'] = (
             values.loc[values['clock_code'] == clock_code]['utck-clock'].diff()
+        )
+        values.loc[values['clock_code'] == clock_code, '2nd_diff'] = (
+            values.loc[values['clock_code'] == clock_code]['1st_diff'].diff()
         )
     mjdstart = values['mjd'].min()
     mjdstop = values['mjd'].max()
     # Plot data interactively
-    clock_dropdown = alt.binding_select(options=clock_list)
+    # Filter on clock code
+    clock_dropdown = alt.binding_select(options=clock_list,
+                                        name="Clock code: ")
     clock_selection = alt.selection_single(fields=['clock_code'],
                                            bind=clock_dropdown,
                                            init={'clock_code': clock_list[0]},
                                            name="clock code")
-    chart = alt.Chart(values).mark_point().encode(
+    # Select between values / 1st diff / 2nd diff for display
+    columns = list(['utck-clock', '1st_diff', '2nd_diff'])
+    values_radio = alt.binding_radio(options=columns, name="Value: ")
+    values_selection = alt.selection_single(
+        fields=['column'], bind=values_radio, init={'column': '1st_diff'})
+
+    chart = alt.Chart(
+        values,
+        title=",".join([x.split('/')[-1] for x in args.files])
+    ).transform_fold(
+        columns,
+        as_=['column', 'value']
+    ).mark_line(
+        point=True
+    ).encode(
         x=alt.X('mjd', scale=alt.Scale(domain=(mjdstart, mjdstop))),
-        y='1st_diff',
+        y=alt.Y('value:Q', scale=alt.Scale(zero=False)),
     ).add_selection(
         clock_selection
     ).transform_filter(
         clock_selection
-    )
+    ).transform_filter(
+        values_selection
+    ).add_selection(
+        values_selection)
+
     chart.save("save.html")
 
 

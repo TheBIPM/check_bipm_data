@@ -102,7 +102,7 @@ def main():
     args = parser.parse_args()
     logging.basicConfig()
 
-    # Data will be collected in python lists (that wille be transformed, in the
+    # Data will be collected in python lists (that will be transformed, in the
     # end, into pandas DataFrame)
 
     diffs_raw = []
@@ -162,8 +162,12 @@ def main():
     ).mark_line(
         point=True
     ).encode(
-        x=alt.X('mjd', scale=alt.Scale(domain=(mjdstart, mjdstop))),
-        y=alt.Y('value:Q', scale=alt.Scale(zero=False)),
+        x=alt.X('mjd',
+                axis=alt.Axis(format='d'),
+                scale=alt.Scale(domain=(mjdstart, mjdstop))),
+        y=alt.Y('value:Q',
+                axis=alt.Axis(format='f'),
+                scale=alt.Scale(zero=False)),
     ).add_selection(
         clock_selection
     ).transform_filter(

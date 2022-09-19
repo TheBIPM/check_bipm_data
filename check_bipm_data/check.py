@@ -202,9 +202,11 @@ def main():
         point=True
     ).encode(
         x=alt.X('mjd',
+                title='MJD',
                 axis=alt.Axis(format='d'),
                 scale=alt.Scale(domain=(mjdstart, mjdstop))),
         y=alt.Y('val:Q',
+                title='Value /ns',
                 axis=alt.Axis(format='f'),
                 scale=alt.Scale(zero=False)),
     ).add_selection(

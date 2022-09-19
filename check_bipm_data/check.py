@@ -1,6 +1,7 @@
 import argparse
 import logging
 import pandas as pd
+import numpy as np
 import altair as alt
 import os
 import re
@@ -111,32 +112,67 @@ def main():
         parse_clockfile(filename, diffs_raw, jumps_raw)
 
     values = pd.DataFrame(diffs_raw, columns=[
-        'lab_code', 'clock_code', 'mjd', 'utck-clock'])
-    jumps = pd.DataFrame(jumps_raw, columns=[
+        'lab_code', 'clock_code', 'mjd', 'val'])
+    steps = pd.DataFrame(jumps_raw, columns=[
         'lab_code', 'lab_acronym', 'clock_code', 'mjd', 'time_step',
         'freq_step'])
     clock_list = sorted(list(values['clock_code'].unique()))
+    mjds = sorted(list(values['mjd'].unique()))
     print("Found {} clock(s):".format(len(clock_list)))
-    values['1st_diff'] = 0
-    values['2nd_diff'] = 0
+    values['type'] = 'utck-clock'
+    # Then we will store values in "val" and 'type" will be one of:
+    # 1diff, 2diff
+    values['corrected'] = False
 
+    to_be_concatenated = [values]
     for clock_code in clock_list:
         print("{:05d}".format(clock_code))
-        this_clock_jumps = jumps.loc[jumps['clock_code'] == clock_code]
-        if len(this_clock_jumps) > 0:
-            print("    {} jump(s) found for {}".format(
-                len(this_clock_jumps), clock_code))
-            for idx, jp in this_clock_jumps.iterrows():
+        this_clock_values = (
+            values.loc[values['clock_code'] == clock_code].sort_values('mjd'))
+        this_clock_steps = (
+            steps.loc[steps['clock_code'] == clock_code].sort_values('mjd'))
+        mjds = this_clock_values['mjd'].to_numpy()
+
+        # Handle steps
+        steps_corr_time = np.zeros(len(mjds))
+        steps_corr_freq = np.zeros(len(mjds))
+        if len(this_clock_steps) > 0:
+            print("    {} step(s) found for {}".format(
+                len(this_clock_steps), clock_code))
+            for idx, jp in this_clock_steps.iterrows():
                 print("     {} {} {}".format(
                     jp['mjd'],
                     jp['time_step'], jp['freq_step']))
-        # Calculate 1st and 2nd diff for each clock
-        values.loc[values['clock_code'] == clock_code, '1st_diff'] = (
-            values.loc[values['clock_code'] == clock_code]['utck-clock'].diff()
-        )
-        values.loc[values['clock_code'] == clock_code, '2nd_diff'] = (
-            values.loc[values['clock_code'] == clock_code]['1st_diff'].diff()
-        )
+                # Accumulate time correction in corresponding columns
+                jp_mjd = float(jp['mjd'])
+                jp_time = float(jp['time_step'])
+                jp_freq = float(jp['freq_step'])
+                steps_corr_time[mjds < jp_mjd] -= jp_time
+                steps_corr_freq[mjds < jp_mjd] -= (jp_freq * (
+                    mjds - jp_mjd)[mjds < jp_mjd])
+        corrected_clock_values = this_clock_values.copy()
+        corrected_clock_values['val'] += (steps_corr_time + steps_corr_freq)
+        corrected_clock_values['corrected'] = True
+        to_be_concatenated.append(corrected_clock_values)
+        diff1 = this_clock_values.copy()
+        diff1['val'] = this_clock_values['val'].diff().copy()
+        diff1['type'] = '1diff'
+        to_be_concatenated.append(diff1)
+        diff2 = diff1.copy()
+        diff2['val'] = diff1['val'].diff().copy()
+        diff2['type'] = '2diff'
+        to_be_concatenated.append(diff2)
+        diff1_corr = corrected_clock_values.copy()
+        diff1_corr['val'] = corrected_clock_values['val'].diff().copy()
+        diff1_corr['type'] = '1diff'
+        to_be_concatenated.append(diff1_corr)
+        diff2_corr = diff1_corr.copy()
+        diff2_corr['val'] = diff1_corr['val'].diff().copy()
+        diff2_corr['type'] = '2diff'
+        to_be_concatenated.append(diff2_corr)
+
+    full_result = pd.concat(to_be_concatenated)
+
     mjdstart = values['mjd'].min()
     mjdstop = values['mjd'].max()
     # Plot data interactively
@@ -148,24 +184,27 @@ def main():
                                            init={'clock_code': clock_list[0]},
                                            name="clock code")
     # Select between values / 1st diff / 2nd diff for display
-    columns = list(['utck-clock', '1st_diff', '2nd_diff'])
-    values_radio = alt.binding_radio(options=columns, name="Value: ")
-    values_selection = alt.selection_single(
-        fields=['column'], bind=values_radio, init={'column': '1st_diff'})
+    types = list(['utck-clock', '1diff', '2diff'])
+    types_radio = alt.binding_radio(options=types, name="Value: ")
+    types_selection = alt.selection_single(
+        fields=['type'], bind=types_radio, init={'type': '1diff'})
 
+    corrected = list([True, False])
+    corrected_radio = alt.binding_radio(options=corrected,
+                                        name="Correct for steps: ")
+    corrected_selection = alt.selection_single(
+        fields=['corrected'], bind=corrected_radio,
+        init={'corrected': True})
     chart = alt.Chart(
-        values,
+        full_result,
         title=",".join([x.split('/')[-1] for x in args.files])
-    ).transform_fold(
-        columns,
-        as_=['column', 'value']
     ).mark_line(
         point=True
     ).encode(
         x=alt.X('mjd',
                 axis=alt.Axis(format='d'),
                 scale=alt.Scale(domain=(mjdstart, mjdstop))),
-        y=alt.Y('value:Q',
+        y=alt.Y('val:Q',
                 axis=alt.Axis(format='f'),
                 scale=alt.Scale(zero=False)),
     ).add_selection(
@@ -173,12 +212,14 @@ def main():
     ).transform_filter(
         clock_selection
     ).transform_filter(
-        values_selection
+        types_selection
     ).add_selection(
-        values_selection)
-
-
-
+        types_selection
+    ).transform_filter(
+        corrected_selection
+    ).add_selection(
+        corrected_selection
+    )
 
     chart.save("save.html")
 
